@@ -1,6 +1,6 @@
 import type { CalculoJuros, Movimentacao, Produto, RelatorioComissoes, TipoMovimentacao, Venda } from "./types";
 
-// Em produção a API fica em outro domínio. Em dev fica vazio e o proxy do Vite resolve.
+// Em produção a API fica em outro domínio, em dev fica vazio e o proxy do Vite resolve
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 interface DetalheErro {
