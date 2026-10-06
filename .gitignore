@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.local
+*.log
+.DS_Store
+.vercel
+
+# "banco" local do estoque, criado quando a API roda
+server/estoque.db.json
