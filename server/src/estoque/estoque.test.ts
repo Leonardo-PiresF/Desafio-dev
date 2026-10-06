@@ -17,7 +17,12 @@ describe("Estoque", () => {
   });
 
   it("soma na entrada e retorna o estoque final", () => {
-    const mov = estoque.movimentar({ codigoProduto: 101, tipo: "entrada", quantidade: 50, descricao: "Compra do fornecedor" });
+    const mov = estoque.movimentar({
+      codigoProduto: 101,
+      tipo: "entrada",
+      quantidade: 50,
+      descricao: "Compra do fornecedor",
+    });
 
     expect(mov).toMatchObject({ id: 1, estoqueAnterior: 150, estoqueFinal: 200 });
     expect(estoque.buscarProduto(101).estoque).toBe(200);
@@ -34,16 +39,16 @@ describe("Estoque", () => {
   });
 
   it("não deixa sair mais do que tem", () => {
-    expect(() =>
-      estoque.movimentar({ codigoProduto: 105, tipo: "saida", quantidade: 91, descricao: "Venda" }),
-    ).toThrow(/Estoque insuficiente/);
+    expect(() => estoque.movimentar({ codigoProduto: 105, tipo: "saida", quantidade: 91, descricao: "Venda" })).toThrow(
+      /Estoque insuficiente/,
+    );
     expect(estoque.buscarProduto(105).estoque).toBe(90);
   });
 
   it("recusa produto que não existe", () => {
-    expect(() => estoque.movimentar({ codigoProduto: 999, tipo: "entrada", quantidade: 1, descricao: "Teste" })).toThrow(
-      /não encontrado/,
-    );
+    expect(() =>
+      estoque.movimentar({ codigoProduto: 999, tipo: "entrada", quantidade: 1, descricao: "Teste" }),
+    ).toThrow(/não encontrado/);
   });
 
   it("gera ids sequenciais e únicos", () => {

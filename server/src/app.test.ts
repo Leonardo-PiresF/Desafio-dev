@@ -87,7 +87,9 @@ describe("POST /api/estoque/movimentacoes", () => {
 
 describe("GET /api/juros", () => {
   it("calcula usando a data informada", async () => {
-    const res = await request(app).get("/api/juros").query({ valor: 200, vencimento: "2026-09-25", dataCalculo: "2026-10-05" });
+    const res = await request(app)
+      .get("/api/juros")
+      .query({ valor: 200, vencimento: "2026-09-25", dataCalculo: "2026-10-05" });
 
     expect(res.body).toMatchObject({ diasEmAtraso: 10, juros: 50, valorAtualizado: 250 });
   });
