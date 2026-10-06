@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, ErroApi } from "../api";
-import { CabecalhoPagina } from "../components/CabecalhoPagina";
+import { Painel } from "../components/Painel";
+import { TituloPagina } from "../components/TituloPagina";
 import type { Movimentacao, Produto, TipoMovimentacao } from "../types";
 import { formatarDataHora, formatarNumero } from "../utils/formatar";
 
@@ -13,7 +14,7 @@ export default function Estoque() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([]);
   const [selecionado, setSelecionado] = useState<number | null>(null);
-  const [atualizado, setAtualizado] = useState<number | null>(null);
+  const [ultimaMovimentacao, setUltimaMovimentacao] = useState<Movimentacao | null>(null);
   // muda quando o estoque é restaurado, pra limpar o formulário
   const [versao, setVersao] = useState(0);
   const [erro, setErro] = useState("");
@@ -36,59 +37,28 @@ export default function Estoque() {
   function aoMovimentar(movimentacao: Movimentacao, produto: Produto) {
     setProdutos((lista) => lista.map((p) => (p.codigoProduto === produto.codigoProduto ? produto : p)));
     setMovimentacoes((lista) => [movimentacao, ...lista]);
-    setAtualizado(produto.codigoProduto);
+    setUltimaMovimentacao(movimentacao);
+  }
+
+  function aoRestaurar() {
+    setVersao((v) => v + 1);
+    setUltimaMovimentacao(null);
+    carregar();
   }
 
   const produtoSelecionado = produtos.find((p) => p.codigoProduto === selecionado);
 
   return (
     <>
-      <CabecalhoPagina numero="02" titulo="Estoque" acoes={
-          <BotaoRestaurar
-            onRestaurado={() => {
-              setVersao((v) => v + 1);
-              setAtualizado(null);
-              carregar();
-            }}
-          />
-        }>
-        <p>
-          Lança entradas e saídas no depósito. Cada movimentação recebe um número único, uma descrição e devolve a
-          quantidade final do produto.
-        </p>
-      </CabecalhoPagina>
+      <TituloPagina
+        titulo="Estoque"
+        descricao="Entradas e saídas de mercadoria no depósito."
+        acoes={<BotaoRestaurar onRestaurado={aoRestaurar} />}
+      />
 
-      {erro && <p className="aviso aviso--erro">{erro}</p>}
+      {erro && <div className="alerta alerta--erro">{erro}</div>}
 
-      <div className="estoque">
-        <section aria-labelledby="titulo-produtos">
-          <h2 id="titulo-produtos" className="subtitulo">
-            Produtos
-          </h2>
-          <ul className="produtos">
-            {produtos.map((produto) => (
-              <li key={produto.codigoProduto}>
-                <button
-                  className="produto"
-                  aria-pressed={produto.codigoProduto === selecionado}
-                  onClick={() => setSelecionado(produto.codigoProduto)}
-                >
-                  <span className="produto__codigo">#{produto.codigoProduto}</span>
-                  <span className="produto__nome">{produto.descricaoProduto}</span>
-                  <span
-                    // a key muda a cada movimentação pra animação rodar de novo
-                    key={produto.codigoProduto === atualizado ? movimentacoes[0]?.id : undefined}
-                    className={`produto__qtd ${produto.codigoProduto === atualizado ? "produto__qtd--mudou" : ""}`}
-                  >
-                    {formatarNumero(produto.estoque)}
-                    <small>un.</small>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-
+      <div className="grade-estoque">
         {produtoSelecionado && (
           <FormMovimentacao
             key={versao}
@@ -98,6 +68,39 @@ export default function Estoque() {
             onMovimentado={aoMovimentar}
           />
         )}
+
+        <Painel titulo="Posição de estoque">
+          <table className="tabela tabela--selecionavel">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Produto</th>
+                <th className="numero">Saldo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {produtos.map((produto) => {
+                const mudou = ultimaMovimentacao?.codigoProduto === produto.codigoProduto;
+                return (
+                  <tr
+                    key={produto.codigoProduto}
+                    className={produto.codigoProduto === selecionado ? "selecionada" : undefined}
+                    onClick={() => setSelecionado(produto.codigoProduto)}
+                  >
+                    <td>{produto.codigoProduto}</td>
+                    <td>{produto.descricaoProduto}</td>
+                    <td className="numero">
+                      {/* a key troca a cada movimentação pra animação rodar de novo */}
+                      <span key={mudou ? ultimaMovimentacao.id : 0} className={mudou ? "saldo-alterado" : undefined}>
+                        {formatarNumero(produto.estoque)}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Painel>
       </div>
 
       <Historico movimentacoes={movimentacoes} produtos={produtos} />
@@ -118,7 +121,7 @@ function FormMovimentacao({ produtos, produto, onTrocarProduto, onMovimentado }:
   const [descricao, setDescricao] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
-  const [ultima, setUltima] = useState<{ movimentacao: Movimentacao; produto: Produto } | null>(null);
+  const [sucesso, setSucesso] = useState("");
   // recria os campos depois de cada envio, senão o navegador marca
   // quantidade e descrição como inválidas assim que elas são limpas
   const [envios, setEnvios] = useState(0);
@@ -126,7 +129,7 @@ function FormMovimentacao({ produtos, produto, onTrocarProduto, onMovimentado }:
   const qtd = Number(quantidade);
   const qtdValida = Number.isInteger(qtd) && qtd > 0;
   const semSaldo = tipo === "saida" && qtd > produto.estoque;
-  const previsao = tipo === "entrada" ? produto.estoque + qtd : produto.estoque - qtd;
+  const saldoPrevisto = tipo === "entrada" ? produto.estoque + qtd : produto.estoque - qtd;
 
   async function enviar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -134,16 +137,12 @@ function FormMovimentacao({ produtos, produto, onTrocarProduto, onMovimentado }:
 
     setEnviando(true);
     setErro("");
+    setSucesso("");
 
     try {
-      const resposta = await api.movimentar({
-        codigoProduto: produto.codigoProduto,
-        tipo,
-        quantidade: qtd,
-        descricao,
-      });
+      const resposta = await api.movimentar({ codigoProduto: produto.codigoProduto, tipo, quantidade: qtd, descricao });
       onMovimentado(resposta.movimentacao, resposta.produto);
-      setUltima(resposta);
+      setSucesso(resposta.mensagem);
       setQuantidade("");
       setDescricao("");
       setEnvios((n) => n + 1);
@@ -156,123 +155,110 @@ function FormMovimentacao({ produtos, produto, onTrocarProduto, onMovimentado }:
   }
 
   return (
-    <form className="cartao form-movimentacao" onSubmit={enviar} aria-labelledby="titulo-form">
-      <h2 id="titulo-form" className="subtitulo">
-        Nova movimentação
-      </h2>
+    <Painel titulo="Lançar movimentação">
+      <form className="formulario" onSubmit={enviar}>
+        {sucesso && (
+          <div className="alerta alerta--sucesso" role="status">
+            {sucesso}
+          </div>
+        )}
+        {erro && <div className="alerta alerta--erro">{erro}</div>}
 
-      <div className="campo">
-        <label htmlFor="produto">Produto</label>
-        <select
-          id="produto"
-          value={produto.codigoProduto}
-          onChange={(e) => {
-            onTrocarProduto(Number(e.target.value));
-            setUltima(null);
-          }}
-        >
-          {produtos.map((p) => (
-            <option key={p.codigoProduto} value={p.codigoProduto}>
-              {p.codigoProduto} · {p.descricaoProduto}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <fieldset className="campo">
-        <legend>Tipo</legend>
-        <div className="alternador">
-          {(["entrada", "saida"] as const).map((opcao) => (
-            <label key={opcao} className={`alternador__opcao alternador__opcao--${opcao}`}>
-              <input
-                type="radio"
-                name="tipo"
-                value={opcao}
-                checked={tipo === opcao}
-                onChange={() => setTipo(opcao)}
-              />
-              {opcao === "entrada" ? "Entrada" : "Saída"}
-            </label>
-          ))}
+        <div className="campo">
+          <label htmlFor="produto">Produto</label>
+          <select id="produto" value={produto.codigoProduto} onChange={(e) => onTrocarProduto(Number(e.target.value))}>
+            {produtos.map((p) => (
+              <option key={p.codigoProduto} value={p.codigoProduto}>
+                {p.codigoProduto} - {p.descricaoProduto}
+              </option>
+            ))}
+          </select>
         </div>
-      </fieldset>
 
-      <div className="campo">
-        <label htmlFor="quantidade">Quantidade</label>
-        <input
-          key={`quantidade-${envios}`}
-          id="quantidade"
-          type="number"
-          inputMode="numeric"
-          min={1}
-          step={1}
-          max={tipo === "saida" ? produto.estoque : undefined}
-          required
-          value={quantidade}
-          onChange={(e) => setQuantidade(e.target.value)}
-          aria-describedby="previsao"
-        />
-        <p id="previsao" className={`previsao ${semSaldo ? "previsao--erro" : ""}`} aria-live="polite">
-          {semSaldo
-            ? `Só há ${formatarNumero(produto.estoque)} un. em estoque`
-            : qtdValida && (
-                <>
-                  {formatarNumero(produto.estoque)} → <strong>{formatarNumero(previsao)}</strong> un. após a{" "}
-                  {tipo === "entrada" ? "entrada" : "saída"}
-                </>
-              )}
-        </p>
-      </div>
+        <fieldset className="campo">
+          <legend>Tipo</legend>
+          <div className="opcoes">
+            <label>
+              <input type="radio" name="tipo" checked={tipo === "entrada"} onChange={() => setTipo("entrada")} />
+              Entrada
+            </label>
+            <label>
+              <input type="radio" name="tipo" checked={tipo === "saida"} onChange={() => setTipo("saida")} />
+              Saída
+            </label>
+          </div>
+        </fieldset>
 
-      <div className="campo">
-        <label htmlFor="descricao">Descrição</label>
-        <input
-          key={`descricao-${envios}`}
-          id="descricao"
-          list="sugestoes-descricao"
-          required
-          minLength={3}
-          maxLength={80}
-          placeholder={SUGESTOES[tipo][0]}
-          value={descricao}
-          onChange={(e) => setDescricao(e.target.value)}
-        />
-        <datalist id="sugestoes-descricao">
-          {SUGESTOES[tipo].map((sugestao) => (
-            <option key={sugestao} value={sugestao} />
-          ))}
-        </datalist>
-      </div>
+        <div className="linha-campos">
+          <div className="campo">
+            <label htmlFor="quantidade">Quantidade</label>
+            <input
+              key={`quantidade-${envios}`}
+              id="quantidade"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              max={tipo === "saida" ? produto.estoque : undefined}
+              required
+              value={quantidade}
+              onChange={(e) => setQuantidade(e.target.value)}
+            />
+          </div>
+          <div className="campo">
+            <span className="rotulo">Saldo após</span>
+            <output className={`saldo-previsto ${semSaldo ? "saldo-previsto--erro" : ""}`} htmlFor="quantidade">
+              {semSaldo ? "Insuficiente" : formatarNumero(qtdValida ? saldoPrevisto : produto.estoque)}
+            </output>
+          </div>
+        </div>
+        {semSaldo && <small className="texto-erro">Saldo insuficiente: há {formatarNumero(produto.estoque)} un.</small>}
 
-      {erro && <p className="aviso aviso--erro">{erro}</p>}
+        <div className="campo">
+          <label htmlFor="descricao">Descrição</label>
+          <input
+            key={`descricao-${envios}`}
+            id="descricao"
+            list="sugestoes-descricao"
+            required
+            minLength={3}
+            maxLength={80}
+            placeholder={`Ex.: ${SUGESTOES[tipo][0]}`}
+            value={descricao}
+            onChange={(e) => setDescricao(e.target.value)}
+          />
+          <datalist id="sugestoes-descricao">
+            {SUGESTOES[tipo].map((sugestao) => (
+              <option key={sugestao} value={sugestao} />
+            ))}
+          </datalist>
+        </div>
 
-      <button className="botao" disabled={enviando || semSaldo}>
-        {enviando ? "Registrando…" : `Registrar ${tipo === "entrada" ? "entrada" : "saída"}`}
-      </button>
-
-      {ultima && (
-        <p className="recibo" role="status">
-          Movimentação <strong>#{ultima.movimentacao.id}</strong> registrada. Estoque final de{" "}
-          {ultima.produto.descricaoProduto}: <strong>{formatarNumero(ultima.movimentacao.estoqueFinal)} un.</strong>
-        </p>
-      )}
-    </form>
+        <button className="botao" disabled={enviando || semSaldo}>
+          {enviando ? "Salvando…" : "Salvar movimentação"}
+        </button>
+      </form>
+    </Painel>
   );
 }
 
 function Historico({ movimentacoes, produtos }: { movimentacoes: Movimentacao[]; produtos: Produto[] }) {
   const [filtro, setFiltro] = useState("");
 
-  const nomeDoProduto = (codigo: number) => produtos.find((p) => p.codigoProduto === codigo)?.descricaoProduto ?? codigo;
+  const nomeDoProduto = (codigo: number) =>
+    produtos.find((p) => p.codigoProduto === codigo)?.descricaoProduto ?? codigo;
   const lista = filtro ? movimentacoes.filter((m) => m.codigoProduto === Number(filtro)) : movimentacoes;
 
   return (
-    <section className="cartao historico" aria-labelledby="titulo-historico">
-      <div className="historico__topo">
-        <h2 id="titulo-historico" className="subtitulo">
-          Histórico
-        </h2>
-        <select aria-label="Filtrar por produto" value={filtro} onChange={(e) => setFiltro(e.target.value)}>
+    <Painel
+      titulo="Movimentações"
+      acoes={
+        <select
+          className="select-pequeno"
+          aria-label="Filtrar por produto"
+          value={filtro}
+          onChange={(e) => setFiltro(e.target.value)}
+        >
           <option value="">Todos os produtos</option>
           {produtos.map((p) => (
             <option key={p.codigoProduto} value={p.codigoProduto}>
@@ -280,41 +266,39 @@ function Historico({ movimentacoes, produtos }: { movimentacoes: Movimentacao[];
             </option>
           ))}
         </select>
-      </div>
-
+      }
+    >
       {lista.length === 0 ? (
-        <p className="vazio">Nenhuma movimentação {filtro ? "para esse produto" : "registrada ainda"}.</p>
+        <p className="vazio">Nenhuma movimentação {filtro ? "para esse produto" : "lançada"}.</p>
       ) : (
         <div className="rolagem">
           <table className="tabela">
             <thead>
               <tr>
-                <th scope="col">Nº</th>
-                <th scope="col">Data</th>
-                <th scope="col">Produto</th>
-                <th scope="col">Descrição</th>
-                <th scope="col" className="numero">
-                  Qtd.
-                </th>
-                <th scope="col" className="numero">
-                  Estoque
-                </th>
+                <th>Nº</th>
+                <th>Data</th>
+                <th>Produto</th>
+                <th>Tipo</th>
+                <th>Descrição</th>
+                <th className="numero">Qtd.</th>
+                <th className="numero">Saldo anterior</th>
+                <th className="numero">Saldo final</th>
               </tr>
             </thead>
             <tbody>
               {lista.map((mov) => (
                 <tr key={mov.id}>
-                  <td className="mono">#{mov.id}</td>
-                  <td className="suave">{formatarDataHora(mov.data)}</td>
+                  <td>{mov.id}</td>
+                  <td className="sem-quebra">{formatarDataHora(mov.data)}</td>
                   <td>{nomeDoProduto(mov.codigoProduto)}</td>
-                  <td>{mov.descricao}</td>
-                  <td className={`numero quantidade--${mov.tipo}`}>
-                    {mov.tipo === "entrada" ? "+" : "−"}
-                    {formatarNumero(mov.quantidade)}
+                  <td>
+                    <span className={`selo selo--${mov.tipo}`}>{mov.tipo === "entrada" ? "Entrada" : "Saída"}</span>
                   </td>
+                  <td>{mov.descricao}</td>
+                  <td className="numero">{formatarNumero(mov.quantidade)}</td>
+                  <td className="numero">{formatarNumero(mov.estoqueAnterior)}</td>
                   <td className="numero">
-                    <span className="suave">{formatarNumero(mov.estoqueAnterior)} → </span>
-                    {formatarNumero(mov.estoqueFinal)}
+                    <strong>{formatarNumero(mov.estoqueFinal)}</strong>
                   </td>
                 </tr>
               ))}
@@ -322,7 +306,7 @@ function Historico({ movimentacoes, produtos }: { movimentacoes: Movimentacao[];
           </table>
         </div>
       )}
-    </section>
+    </Painel>
   );
 }
 
@@ -347,8 +331,8 @@ function BotaoRestaurar({ onRestaurado }: { onRestaurado: () => void }) {
   }
 
   return (
-    <button className={`botao botao--secundario ${confirmando ? "botao--perigo" : ""}`} onClick={clicar}>
-      {confirmando ? "Clique de novo para confirmar" : "Restaurar estoque inicial"}
+    <button className={`botao ${confirmando ? "botao--perigo" : "botao--secundario"}`} onClick={clicar}>
+      {confirmando ? "Confirmar restauração" : "Restaurar estoque inicial"}
     </button>
   );
 }

@@ -1,20 +1,15 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type ChangeEvent, type Ref } from "react";
 import { api, ErroApi } from "../api";
-import { CabecalhoPagina } from "../components/CabecalhoPagina";
+import { Painel } from "../components/Painel";
+import { TituloPagina } from "../components/TituloPagina";
 import type { RelatorioComissoes, ResumoVendedor, Venda } from "../types";
-import { formatarMoeda, formatarPorcentagem, plural } from "../utils/formatar";
-
-const FAIXAS = [
-  { percentual: 0, descricao: "Abaixo de R$ 100" },
-  { percentual: 1, descricao: "De R$ 100 a R$ 499,99" },
-  { percentual: 5, descricao: "A partir de R$ 500" },
-];
+import { formatarMoeda, formatarNumero, formatarPorcentagem } from "../utils/formatar";
 
 export default function Comissoes() {
   const [relatorio, setRelatorio] = useState<RelatorioComissoes | null>(null);
   const [erro, setErro] = useState("");
   const [usandoJsonProprio, setUsandoJsonProprio] = useState(false);
-  const [abrirEditor, setAbrirEditor] = useState(false);
+  const modalRef = useRef<HTMLDialogElement>(null);
 
   function carregarEnunciado() {
     api
@@ -33,182 +28,151 @@ export default function Comissoes() {
 
   return (
     <>
-      <CabecalhoPagina
-        numero="01"
+      <TituloPagina
         titulo="Comissões"
+        descricao="Comissão de cada vendedor calculada venda a venda."
         acoes={
-          <button className="botao botao--secundario" onClick={() => setAbrirEditor((aberto) => !aberto)}>
-            {abrirEditor ? "Fechar editor" : "Usar outro JSON"}
+          <button className="botao" onClick={() => modalRef.current?.showModal()}>
+            Importar JSON
           </button>
         }
-      >
-        <p>Lê as vendas do time comercial e calcula a comissão de cada vendedor, venda a venda.</p>
-        <ul className="faixas" aria-label="Regras de comissão">
-          {FAIXAS.map((faixa) => (
-            <li key={faixa.percentual}>
-              <span className={`etiqueta faixa--${faixa.percentual}`}>{faixa.percentual}%</span>
-              {faixa.descricao}
-            </li>
-          ))}
-        </ul>
-      </CabecalhoPagina>
+      />
 
-      {abrirEditor && (
-        <EditorJson
-          onCalculado={(dados) => {
-            setRelatorio(dados);
-            setUsandoJsonProprio(true);
-            setAbrirEditor(false);
-          }}
-        />
-      )}
+      <div className="alerta alerta--info">
+        <strong>Regra:</strong> vendas abaixo de R$ 100,00 não geram comissão, de R$ 100,00 a R$ 499,99 geram 1% e a
+        partir de R$ 500,00 geram 5%.
+      </div>
 
-      {erro && <p className="aviso aviso--erro">{erro}</p>}
+      {erro && <div className="alerta alerta--erro">{erro}</div>}
 
       {usandoJsonProprio && (
-        <p className="aviso">
-          Mostrando o cálculo do JSON que você enviou.{" "}
+        <div className="alerta alerta--aviso">
+          Exibindo os dados do arquivo importado.{" "}
           <button className="link" onClick={carregarEnunciado}>
-            Voltar para os dados do enunciado
+            Voltar aos dados do enunciado
           </button>
-        </p>
+        </div>
       )}
 
-      {relatorio ? <Relatorio relatorio={relatorio} /> : !erro && <p className="carregando">Calculando…</p>}
+      {relatorio ? <TabelaComissoes relatorio={relatorio} /> : !erro && <p className="carregando">Carregando…</p>}
+
+      <ModalImportar
+        ref={modalRef}
+        onCalculado={(dados) => {
+          setRelatorio(dados);
+          setUsandoJsonProprio(true);
+          modalRef.current?.close();
+        }}
+      />
     </>
   );
 }
 
-function Relatorio({ relatorio }: { relatorio: RelatorioComissoes }) {
+function TabelaComissoes({ relatorio }: { relatorio: RelatorioComissoes }) {
   const { resumo, vendedores } = relatorio;
-  const [aberto, setAberto] = useState<string | null>(null);
-  const taxaMedia = resumo.totalVendido ? resumo.totalComissao / resumo.totalVendido : 0;
+  const [abertos, setAbertos] = useState<string[]>([]);
+
+  function alternar(nome: string) {
+    setAbertos((lista) => (lista.includes(nome) ? lista.filter((n) => n !== nome) : [...lista, nome]));
+  }
 
   return (
-    <>
-      <dl className="indicadores">
-        <div>
-          <dt>Total vendido</dt>
-          <dd>{formatarMoeda(resumo.totalVendido)}</dd>
-        </div>
-        <div className="indicadores__destaque">
-          <dt>Comissões a pagar</dt>
-          <dd>{formatarMoeda(resumo.totalComissao)}</dd>
-        </div>
-        <div>
-          <dt>Vendas</dt>
-          <dd>
-            {resumo.quantidadeVendas}
-            <small> de {plural(resumo.quantidadeVendedores, "vendedor", "vendedores")}</small>
-          </dd>
-        </div>
-        <div>
-          <dt>Taxa efetiva</dt>
-          <dd>{formatarPorcentagem(taxaMedia)}</dd>
-        </div>
-      </dl>
-
-      <section className="cartao">
-        <table className="tabela tabela--vendedores">
+    <Painel titulo={`Vendedores (${resumo.quantidadeVendedores})`}>
+      <div className="rolagem">
+        <table className="tabela">
           <thead>
             <tr>
-              <th scope="col">Vendedor</th>
-              <th scope="col" className="numero">
-                Vendas
-              </th>
-              <th scope="col">Por faixa</th>
-              <th scope="col" className="numero">
-                Total vendido
-              </th>
-              <th scope="col" className="numero">
-                Comissão
-              </th>
+              <th className="col-acao" aria-label="Detalhes" />
+              <th>Vendedor</th>
+              <th className="numero">Vendas</th>
+              <th className="numero">Total vendido</th>
+              <th className="numero">Taxa média</th>
+              <th className="numero">Comissão</th>
             </tr>
           </thead>
-          {vendedores.map((vendedor, posicao) => (
-            <LinhaVendedor
-              key={vendedor.vendedor}
-              posicao={posicao + 1}
-              vendedor={vendedor}
-              aberto={aberto === vendedor.vendedor}
-              onAlternar={() => setAberto((atual) => (atual === vendedor.vendedor ? null : vendedor.vendedor))}
-            />
-          ))}
+          <tbody>
+            {vendedores.map((vendedor) => {
+              const aberto = abertos.includes(vendedor.vendedor);
+              const idDetalhe = `detalhe-${vendedor.vendedor.replace(/\s+/g, "-")}`;
+
+              return (
+                <Fragment key={vendedor.vendedor}>
+                  <tr className={aberto ? "linha-aberta" : undefined}>
+                    <td className="col-acao">
+                      <button
+                        className="botao-expandir"
+                        onClick={() => alternar(vendedor.vendedor)}
+                        aria-expanded={aberto}
+                        aria-controls={idDetalhe}
+                        aria-label={`${aberto ? "Ocultar" : "Ver"} vendas de ${vendedor.vendedor}`}
+                      >
+                        {aberto ? "−" : "+"}
+                      </button>
+                    </td>
+                    <td>{vendedor.vendedor}</td>
+                    <td className="numero">{vendedor.quantidadeVendas}</td>
+                    <td className="numero">{formatarMoeda(vendedor.totalVendido)}</td>
+                    <td className="numero">
+                      {formatarPorcentagem(vendedor.totalVendido ? vendedor.totalComissao / vendedor.totalVendido : 0)}
+                    </td>
+                    <td className="numero">
+                      <strong>{formatarMoeda(vendedor.totalComissao)}</strong>
+                    </td>
+                  </tr>
+                  {aberto && (
+                    <tr className="linha-detalhe" id={idDetalhe}>
+                      <td />
+                      <td colSpan={5}>
+                        <DetalheVendas vendedor={vendedor} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td />
+              <td>Total</td>
+              <td className="numero">{resumo.quantidadeVendas}</td>
+              <td className="numero">{formatarMoeda(resumo.totalVendido)}</td>
+              <td className="numero">
+                {formatarPorcentagem(resumo.totalVendido ? resumo.totalComissao / resumo.totalVendido : 0)}
+              </td>
+              <td className="numero">{formatarMoeda(resumo.totalComissao)}</td>
+            </tr>
+          </tfoot>
         </table>
-      </section>
-    </>
+      </div>
+    </Painel>
   );
 }
 
-interface LinhaVendedorProps {
-  posicao: number;
-  vendedor: ResumoVendedor;
-  aberto: boolean;
-  onAlternar: () => void;
-}
-
-function LinhaVendedor({ posicao, vendedor, aberto, onAlternar }: LinhaVendedorProps) {
-  const idDetalhes = `vendas-${posicao}`;
-  // maior venda primeiro no detalhamento
-  const vendas = [...vendedor.vendas].sort((a, b) => b.valor - a.valor);
-
+function DetalheVendas({ vendedor }: { vendedor: ResumoVendedor }) {
   return (
-    // um tbody por vendedor deixa a linha de detalhes junto da linha principal
-    <tbody className={aberto ? "aberto" : undefined}>
-      <tr className="linha-vendedor">
-        <th scope="row">
-          <button className="linha-vendedor__botao" onClick={onAlternar} aria-expanded={aberto} aria-controls={idDetalhes}>
-            <span className="linha-vendedor__posicao">{posicao}º</span>
-            {vendedor.vendedor}
-            <span className="seta" aria-hidden="true" />
-          </button>
-        </th>
-        <td className="numero">{vendedor.quantidadeVendas}</td>
-        <td>
-          <BarraFaixas vendedor={vendedor} />
-        </td>
-        <td className="numero">{formatarMoeda(vendedor.totalVendido)}</td>
-        <td className="numero forte">{formatarMoeda(vendedor.totalComissao)}</td>
-      </tr>
-
-      <tr className="detalhes" id={idDetalhes} hidden={!aberto}>
-        <td colSpan={5}>
-          <ol className="lista-vendas">
-            {vendas.map((venda, i) => (
-              <li key={i}>
-                <span className="lista-vendas__valor">{formatarMoeda(venda.valor)}</span>
-                <span className={`etiqueta faixa--${venda.percentual}`}>{venda.percentual}%</span>
-                <span className="lista-vendas__comissao">
-                  {venda.comissao ? `+ ${formatarMoeda(venda.comissao)}` : "sem comissão"}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </td>
-      </tr>
-    </tbody>
-  );
-}
-
-function BarraFaixas({ vendedor }: { vendedor: ResumoVendedor }) {
-  const contagem = FAIXAS.map((faixa) => ({
-    ...faixa,
-    quantidade: vendedor.vendas.filter((v) => v.percentual === faixa.percentual).length,
-  }));
-
-  const legenda = contagem.map((f) => `${f.quantidade} com ${f.percentual}%`).join(", ");
-
-  return (
-    <div className="barra-faixas" role="img" aria-label={legenda} title={legenda}>
-      {contagem.map(
-        (f) =>
-          f.quantidade > 0 && (
-            <span key={f.percentual} className={`faixa--${f.percentual}`} style={{ flexGrow: f.quantidade }}>
-              {f.quantidade}
-            </span>
-          ),
-      )}
-    </div>
+    <table className="tabela tabela--interna">
+      <thead>
+        <tr>
+          <th>Venda</th>
+          <th className="numero">Valor</th>
+          <th className="numero">Percentual</th>
+          <th className="numero">Comissão</th>
+        </tr>
+      </thead>
+      <tbody>
+        {vendedor.vendas.map((venda, i) => (
+          <tr key={i}>
+            <td>{i + 1}ª</td>
+            <td className="numero">{formatarMoeda(venda.valor)}</td>
+            <td className="numero">
+              <span className={`selo selo--faixa-${venda.percentual}`}>{venda.percentual}%</span>
+            </td>
+            <td className="numero">{venda.comissao ? formatarMoeda(venda.comissao) : "-"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -220,18 +184,21 @@ const EXEMPLO = `{
   ]
 }`;
 
-function EditorJson({ onCalculado }: { onCalculado: (dados: RelatorioComissoes) => void }) {
+interface ModalProps {
+  ref: Ref<HTMLDialogElement>;
+  onCalculado: (dados: RelatorioComissoes) => void;
+}
+
+function ModalImportar({ ref, onCalculado }: ModalProps) {
   const [texto, setTexto] = useState(EXEMPLO);
   const [erros, setErros] = useState<string[]>([]);
   const [enviando, setEnviando] = useState(false);
-  const arquivoRef = useRef<HTMLInputElement>(null);
 
   async function lerArquivo(e: ChangeEvent<HTMLInputElement>) {
     const arquivo = e.target.files?.[0];
     if (!arquivo) return;
     setTexto(await arquivo.text());
     setErros([]);
-    e.target.value = "";
   }
 
   async function calcular() {
@@ -249,6 +216,7 @@ function EditorJson({ onCalculado }: { onCalculado: (dados: RelatorioComissoes) 
     setEnviando(true);
     try {
       onCalculado(await api.calcularComissoes(vendas));
+      setErros([]);
     } catch (e) {
       if (e instanceof ErroApi && e.detalhes.length) {
         setErros(e.detalhes.map((d) => descreverCampo(d.campo) + d.mensagem));
@@ -261,36 +229,54 @@ function EditorJson({ onCalculado }: { onCalculado: (dados: RelatorioComissoes) 
   }
 
   return (
-    <section className="cartao editor-json">
-      <div className="editor-json__topo">
-        <label htmlFor="json-vendas">Cole as vendas no mesmo formato do enunciado</label>
-        <button className="link" onClick={() => arquivoRef.current?.click()}>
-          ou carregue um arquivo .json
-        </button>
-        <input ref={arquivoRef} type="file" accept=".json,application/json" hidden onChange={lerArquivo} />
+    <dialog ref={ref} className="modal" aria-labelledby="titulo-importar" closedby="any">
+      <header className="modal__cabecalho">
+        <h2 id="titulo-importar">Importar vendas</h2>
+        <form method="dialog">
+          <button className="modal__fechar" aria-label="Fechar">
+            ×
+          </button>
+        </form>
+      </header>
+
+      <div className="modal__corpo">
+        <div className="campo">
+          <label htmlFor="arquivo-json">Arquivo .json</label>
+          <input id="arquivo-json" type="file" accept=".json,application/json" onChange={lerArquivo} />
+        </div>
+
+        <div className="campo">
+          <label htmlFor="json-vendas">Ou cole o conteúdo</label>
+          <textarea
+            id="json-vendas"
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            spellCheck={false}
+            rows={11}
+          />
+          <small className="dica">
+            Mesmo formato do enunciado: {'{ "vendas": [{ "vendedor": "...", "valor": 0 }] }'}
+          </small>
+        </div>
+
+        {erros.length > 0 && (
+          <ul className="alerta alerta--erro">
+            {erros.slice(0, 5).map((erro) => (
+              <li key={erro}>{erro}</li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      <textarea
-        id="json-vendas"
-        value={texto}
-        onChange={(e) => setTexto(e.target.value)}
-        spellCheck={false}
-        rows={10}
-        aria-describedby={erros.length ? "erros-json" : undefined}
-      />
-
-      {erros.length > 0 && (
-        <ul id="erros-json" className="aviso aviso--erro">
-          {erros.slice(0, 5).map((erro) => (
-            <li key={erro}>{erro}</li>
-          ))}
-        </ul>
-      )}
-
-      <button className="botao" onClick={calcular} disabled={enviando}>
-        {enviando ? "Calculando…" : "Calcular comissões"}
-      </button>
-    </section>
+      <footer className="modal__rodape">
+        <form method="dialog">
+          <button className="botao botao--secundario">Cancelar</button>
+        </form>
+        <button className="botao" onClick={calcular} disabled={enviando}>
+          {enviando ? "Calculando…" : "Calcular"}
+        </button>
+      </footer>
+    </dialog>
   );
 }
 
@@ -298,5 +284,5 @@ function EditorJson({ onCalculado }: { onCalculado: (dados: RelatorioComissoes) 
 function descreverCampo(campo: string) {
   const [, indice, propriedade] = campo.split(".");
   if (indice === undefined) return "";
-  return `Venda ${Number(indice) + 1}, ${propriedade}: `;
+  return `Venda ${formatarNumero(Number(indice) + 1)}, ${propriedade}: `;
 }

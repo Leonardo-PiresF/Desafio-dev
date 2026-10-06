@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../api";
-import { CabecalhoPagina } from "../components/CabecalhoPagina";
+import { Painel } from "../components/Painel";
+import { TituloPagina } from "../components/TituloPagina";
 import type { CalculoJuros } from "../types";
 import { diasEntre, formatarData, formatarMoeda, hojeEmBrasilia, plural } from "../utils/formatar";
 
@@ -42,7 +43,11 @@ export default function Juros() {
     try {
       // só manda a data se for diferente de hoje, assim quem decide o "hoje" é a API
       setResultado(
-        await api.juros({ valor: valor.valor, vencimento, dataCalculo: dataCalculo === hoje ? undefined : dataCalculo }),
+        await api.juros({
+          valor: valor.valor,
+          vencimento,
+          dataCalculo: dataCalculo === hoje ? undefined : dataCalculo,
+        }),
       );
     } catch (e) {
       setErro((e as Error).message);
@@ -53,129 +58,124 @@ export default function Juros() {
 
   return (
     <>
-      <CabecalhoPagina numero="03" titulo="Juros por atraso">
-        <p>
-          A partir de um valor e da data de vencimento, calcula quanto ficou de juros até hoje, com taxa de{" "}
-          <strong>2,5% ao dia</strong> sobre o valor original.
-        </p>
-      </CabecalhoPagina>
+      <TituloPagina
+        titulo="Juros por atraso"
+        descricao="Juros de 2,5% ao dia sobre o valor original, contados a partir do vencimento."
+      />
 
-      <div className="juros">
-        <form className="cartao form-juros" onSubmit={calcular}>
-          <div className="campo">
-            <label htmlFor="valor">Valor</label>
-            <input
-              id="valor"
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder="R$ 0,00"
-              required
-              className="mono"
-              {...valor.props}
-            />
-          </div>
+      <div className="grade-juros">
+        <Painel titulo="Dados do título">
+          <form className="formulario" onSubmit={calcular}>
+            {erro && <div className="alerta alerta--erro">{erro}</div>}
 
-          <div className="campo">
-            <label htmlFor="vencimento">Vencimento</label>
-            <input
-              id="vencimento"
-              type="date"
-              required
-              value={vencimento}
-              onChange={(e) => setVencimento(e.target.value)}
-            />
-          </div>
+            <div className="campo">
+              <label htmlFor="valor">Valor</label>
+              <input
+                id="valor"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="R$ 0,00"
+                required
+                {...valor.props}
+              />
+            </div>
 
-          <div className="campo">
-            <label htmlFor="data-calculo">Calcular em</label>
-            <input
-              id="data-calculo"
-              type="date"
-              required
-              value={dataCalculo}
-              onChange={(e) => setDataCalculo(e.target.value)}
-              aria-describedby="dica-data"
-            />
-            <p id="dica-data" className="dica">
+            <div className="linha-campos">
+              <div className="campo">
+                <label htmlFor="vencimento">Vencimento</label>
+                <input
+                  id="vencimento"
+                  type="date"
+                  required
+                  value={vencimento}
+                  onChange={(e) => setVencimento(e.target.value)}
+                />
+              </div>
+              <div className="campo">
+                <label htmlFor="data-calculo">Data do cálculo</label>
+                <input
+                  id="data-calculo"
+                  type="date"
+                  required
+                  value={dataCalculo}
+                  onChange={(e) => setDataCalculo(e.target.value)}
+                />
+              </div>
+            </div>
+            <small className="dica">
               {dataCalculo === hoje ? (
-                "Hoje, no horário de Brasília"
+                "A data do cálculo vem preenchida com hoje (horário de Brasília)."
               ) : (
                 <button type="button" className="link" onClick={() => setDataCalculo(hoje)}>
-                  Voltar para hoje ({formatarData(hoje)})
+                  Usar a data de hoje ({formatarData(hoje)})
                 </button>
               )}
-            </p>
-          </div>
+            </small>
 
-          {erro && <p className="aviso aviso--erro">{erro}</p>}
+            <button className="botao" disabled={calculando}>
+              {calculando ? "Calculando…" : "Calcular"}
+            </button>
+          </form>
+        </Painel>
 
-          <button className="botao" disabled={calculando}>
-            {calculando ? "Calculando…" : "Calcular juros"}
-          </button>
-        </form>
-
-        {resultado ? <Resultado calculo={resultado} /> : <ResultadoVazio />}
+        <Painel titulo="Demonstrativo">
+          {resultado ? (
+            <Demonstrativo calculo={resultado} />
+          ) : (
+            <p className="vazio">Preencha os dados e clique em Calcular.</p>
+          )}
+        </Painel>
       </div>
     </>
   );
 }
 
-function Resultado({ calculo }: { calculo: CalculoJuros }) {
-  const emDia = calculo.diasEmAtraso === 0;
+function Demonstrativo({ calculo }: { calculo: CalculoJuros }) {
+  const emAtraso = calculo.diasEmAtraso > 0;
   const faltam = diasEntre(calculo.dataCalculo, calculo.vencimento);
 
+  let situacao = `Vencido há ${plural(calculo.diasEmAtraso, "dia")}`;
+  if (!emAtraso) situacao = faltam > 0 ? `A vencer em ${plural(faltam, "dia")}` : "Vence hoje";
+
   return (
-    <section className="cartao resultado" aria-live="polite">
-      <p className={`resultado__situacao ${emDia ? "resultado__situacao--ok" : ""}`}>
-        {emDia
-          ? faltam > 0
-            ? `Dentro do prazo, vence em ${plural(faltam, "dia")}`
-            : "Vence hoje, ainda sem juros"
-          : `${plural(calculo.diasEmAtraso, "dia")} em atraso`}
-      </p>
-
-      <p className="resultado__total">
-        <span>Valor atualizado</span>
-        {formatarMoeda(calculo.valorAtualizado)}
-      </p>
-
-      <dl className="resultado__linhas">
-        <div>
-          <dt>Valor original</dt>
-          <dd>{formatarMoeda(calculo.valorOriginal)}</dd>
-        </div>
-        <div>
-          <dt>Vencimento</dt>
-          <dd>{formatarData(calculo.vencimento)}</dd>
-        </div>
-        <div>
-          <dt>Calculado em</dt>
-          <dd>{formatarData(calculo.dataCalculo)}</dd>
-        </div>
-        <div className="resultado__juros">
-          <dt>Juros</dt>
-          <dd>{formatarMoeda(calculo.juros)}</dd>
-        </div>
-      </dl>
-
-      {!emDia && (
-        <p className="formula">
-          {formatarMoeda(calculo.valorOriginal)} × {String(calculo.taxaDiaria).replace(".", ",")}% ×{" "}
-          {plural(calculo.diasEmAtraso, "dia")} = {formatarMoeda(calculo.juros)}
-        </p>
-      )}
-    </section>
-  );
-}
-
-function ResultadoVazio() {
-  return (
-    <section className="cartao resultado resultado--vazio">
-      <p>Preencha o valor e o vencimento para ver os juros.</p>
-      <p className="dica">
-        Pagamentos no dia do vencimento ou antes dele não têm juros. A partir do dia seguinte, cada dia soma 2,5% do
-        valor original.
-      </p>
-    </section>
+    <table className="tabela tabela--demonstrativo">
+      <tbody>
+        <tr>
+          <th>Situação</th>
+          <td>
+            <span className={`selo ${emAtraso ? "selo--saida" : "selo--entrada"}`}>{situacao}</span>
+          </td>
+        </tr>
+        <tr>
+          <th>Vencimento</th>
+          <td>{formatarData(calculo.vencimento)}</td>
+        </tr>
+        <tr>
+          <th>Data do cálculo</th>
+          <td>{formatarData(calculo.dataCalculo)}</td>
+        </tr>
+        <tr>
+          <th>Valor original</th>
+          <td>{formatarMoeda(calculo.valorOriginal)}</td>
+        </tr>
+        <tr>
+          <th>
+            Juros
+            {emAtraso && (
+              <small>
+                {String(calculo.taxaDiaria).replace(".", ",")}% × {plural(calculo.diasEmAtraso, "dia")}
+              </small>
+            )}
+          </th>
+          <td className={emAtraso ? "texto-erro" : undefined}>{formatarMoeda(calculo.juros)}</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <th>Valor atualizado</th>
+          <td>{formatarMoeda(calculo.valorAtualizado)}</td>
+        </tr>
+      </tfoot>
+    </table>
   );
 }
