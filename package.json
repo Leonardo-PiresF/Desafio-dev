@@ -1,0 +1,13 @@
+{
+  "name": "desafio-dev",
+  "private": true,
+  "scripts": {
+    "setup": "npm install && npm install --prefix server && npm install --prefix web",
+    "dev": "concurrently -n api,web -c green,blue \"npm run dev --prefix server\" \"npm run dev --prefix web\"",
+    "test": "npm test --prefix server",
+    "build": "npm run build --prefix server && npm run build --prefix web"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}
